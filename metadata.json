@@ -1,0 +1,6 @@
+{
+  "name": "터보 드라이브 - 고속도로 레이싱",
+  "description": "브라우저에서 바로 즐기는 짜릿한 아케이드 자동차 레이싱 게임. 트래픽 회피, 아슬아슬 추월, 니트로 부스트, 차량 컬렉션 및 업그레이드 지원.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

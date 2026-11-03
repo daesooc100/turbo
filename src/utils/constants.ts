@@ -1,0 +1,132 @@
+import { Vehicle, VehicleUpgrades } from '../types/game';
+
+export const VEHICLES: Vehicle[] = [
+  {
+    id: 'red_speeder',
+    name: 'Red Speeder',
+    nameKo: '붉은 질주마 (Red Speeder)',
+    price: 0,
+    unlocked: true,
+    color: '#ef4444',
+    secondaryColor: '#1e293b',
+    accentColor: '#f59e0b',
+    description: '균형 잡힌 기본 스포츠카. 뛰어난 조작감과 부드러운 핸들링을 자랑합니다.',
+    speed: 190,
+    acceleration: 24,
+    handling: 28,
+    armor: 2,
+    style: 'sport',
+  },
+  {
+    id: 'cyber_lightning',
+    name: 'Cyber Lightning',
+    nameKo: '사이버 라이트닝 (Cyber Lightning)',
+    price: 350,
+    unlocked: false,
+    color: '#06b6d4',
+    secondaryColor: '#0f172a',
+    accentColor: '#ec4899',
+    description: '최첨단 네온 슈퍼카. 압도적인 최고 속도와 강력한 니트로 효율을 제공합니다.',
+    speed: 230,
+    acceleration: 28,
+    handling: 26,
+    armor: 2,
+    style: 'cyber',
+  },
+  {
+    id: 'beast_suv',
+    name: 'Beast SUV',
+    nameKo: '비스트 탱크 (Beast SUV)',
+    price: 500,
+    unlocked: false,
+    color: '#eab308',
+    secondaryColor: '#334155',
+    accentColor: '#10b981',
+    description: '강화 강철 프레임 오프로더. 충돌 피해를 흡수하며 탁월한 내구성을 발휘합니다.',
+    speed: 175,
+    acceleration: 20,
+    handling: 22,
+    armor: 4,
+    style: 'suv',
+  },
+  {
+    id: 'formula_apex',
+    name: 'Formula Apex',
+    nameKo: '포뮬러 에이펙스 (Formula Apex)',
+    price: 800,
+    unlocked: false,
+    color: '#8b5cf6',
+    secondaryColor: '#020617',
+    accentColor: '#10b981',
+    description: '최정상급 레이스 머신. 전광석화 같은 가속도와 칼날 같은 코너링 핸들링.',
+    speed: 250,
+    acceleration: 36,
+    handling: 38,
+    armor: 1,
+    style: 'formula',
+  },
+  {
+    id: 'interceptor',
+    name: 'Highway Interceptor',
+    nameKo: '고속 인터셉터 (Highway Interceptor)',
+    price: 1200,
+    unlocked: false,
+    color: '#1e293b',
+    secondaryColor: '#f8fafc',
+    accentColor: '#3b82f6',
+    description: '고속도로 고성능 경찰차. 사이렌 경적과 폭발적인 순간 가속이 장점입니다.',
+    speed: 240,
+    acceleration: 32,
+    handling: 30,
+    armor: 3,
+    style: 'police',
+  },
+];
+
+export const DEFAULT_UPGRADES: VehicleUpgrades = {
+  speedLevel: 0,
+  accelLevel: 0,
+  handlingLevel: 0,
+  nitroLevel: 0,
+  magnetLevel: 0,
+};
+
+export const UPGRADE_PRICES = [100, 200, 350, 500, 800];
+
+export const LANE_COUNT = 4;
+export const ROAD_BASE_WIDTH = 480;
+export const CAR_WIDTH = 46;
+export const CAR_HEIGHT = 88;
+
+export const HIGHWAY_COLORS = {
+  DAY: {
+    skyTop: '#38bdf8',
+    skyBottom: '#bae6fd',
+    road: '#334155',
+    shoulder: '#1e293b',
+    grass: '#15803d',
+    line: '#f8fafc',
+    ambientLight: 1.0,
+    headlightVisible: false,
+  },
+  SUNSET: {
+    skyTop: '#9333ea',
+    skyBottom: '#f97316',
+    road: '#334155',
+    shoulder: '#1e293b',
+    grass: '#3f6212',
+    line: '#fed7aa',
+    ambientLight: 0.85,
+    headlightVisible: true,
+  },
+  NIGHT: {
+    skyTop: '#020617',
+    skyBottom: '#1e1b4b',
+    road: '#0f172a',
+    shoulder: '#020617',
+    grass: '#064e3b',
+    line: '#cbd5e1',
+    ambientLight: 0.5,
+    headlightVisible: true,
+  },
+};
