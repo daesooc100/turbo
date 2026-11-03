@@ -49,6 +49,28 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
+  // Keep references to inputs and callbacks to avoid restarting the 60fps loop
+  const touchInputRef = useRef(touchInput);
+  touchInputRef.current = touchInput;
+
+  const onGameOverRef = useRef(onGameOver);
+  onGameOverRef.current = onGameOver;
+
+  const onStatsUpdateRef = useRef(onStatsUpdate);
+  onStatsUpdateRef.current = onStatsUpdate;
+
+  const isPausedRef = useRef(isPaused);
+  isPausedRef.current = isPaused;
+
+  const themeRef = useRef(theme);
+  themeRef.current = theme;
+
+  const modeRef = useRef(mode);
+  modeRef.current = mode;
+
+  const vehicleRef = useRef(vehicle);
+  vehicleRef.current = vehicle;
+
   // Keyboard input state
   const keysRef = useRef<{
     left: boolean;
@@ -64,10 +86,15 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     space: false,
   });
 
-  // Calculate current vehicle performance
-  const tunedStats = calculateVehicleStats(vehicle.id, upgrades);
+  // Direct canvas touch / click steering (-1: left, 1: right, null: none)
+  const canvasPointerSteerRef = useRef<number | null>(null);
 
-  // Game internal state references (to avoid re-renders inside 60fps loop)
+  // Tuned performance stats
+  const tunedStats = calculateVehicleStats(vehicle.id, upgrades);
+  const tunedStatsRef = useRef(tunedStats);
+  tunedStatsRef.current = tunedStats;
+
+  // Player internal physics state
   const playerRef = useRef<PlayerState>({
     x: 0,
     y: 0,
@@ -112,24 +139,46 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
   const isDeadRef = useRef<boolean>(false);
   const checkpointDistanceRef = useRef<number>(1500);
 
-  // Initialize input listeners
+  // Initialize Keyboard event listeners (Supports English WASD, Arrows, Korean IME ㅁ/ㅇ/ㅈ/ㄴ)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (['ArrowUp', 'KeyW'].includes(e.code)) keysRef.current.up = true;
-      if (['ArrowDown', 'KeyS'].includes(e.code)) keysRef.current.down = true;
-      if (['ArrowLeft', 'KeyA'].includes(e.code)) keysRef.current.left = true;
-      if (['ArrowRight', 'KeyD'].includes(e.code)) keysRef.current.right = true;
-      if (['Space', 'ShiftLeft', 'ShiftRight'].includes(e.code)) {
+      const code = e.code;
+      const key = e.key;
+
+      if (['ArrowUp', 'KeyW'].includes(code) || ['ArrowUp', 'w', 'W', 'ㅈ'].includes(key)) {
+        keysRef.current.up = true;
+      }
+      if (['ArrowDown', 'KeyS'].includes(code) || ['ArrowDown', 's', 'S', 'ㄴ'].includes(key)) {
+        keysRef.current.down = true;
+      }
+      if (['ArrowLeft', 'KeyA'].includes(code) || ['ArrowLeft', 'a', 'A', 'ㅁ'].includes(key)) {
+        keysRef.current.left = true;
+      }
+      if (['ArrowRight', 'KeyD'].includes(code) || ['ArrowRight', 'd', 'D', 'ㅇ'].includes(key)) {
+        keysRef.current.right = true;
+      }
+      if (['Space', 'ShiftLeft', 'ShiftRight'].includes(code) || [' ', 'Shift'].includes(key)) {
         keysRef.current.space = true;
       }
     };
 
     const handleKeyUp = (e: KeyboardEvent) => {
-      if (['ArrowUp', 'KeyW'].includes(e.code)) keysRef.current.up = false;
-      if (['ArrowDown', 'KeyS'].includes(e.code)) keysRef.current.down = false;
-      if (['ArrowLeft', 'KeyA'].includes(e.code)) keysRef.current.left = false;
-      if (['ArrowRight', 'KeyD'].includes(e.code)) keysRef.current.right = false;
-      if (['Space', 'ShiftLeft', 'ShiftRight'].includes(e.code)) {
+      const code = e.code;
+      const key = e.key;
+
+      if (['ArrowUp', 'KeyW'].includes(code) || ['ArrowUp', 'w', 'W', 'ㅈ'].includes(key)) {
+        keysRef.current.up = false;
+      }
+      if (['ArrowDown', 'KeyS'].includes(code) || ['ArrowDown', 's', 'S', 'ㄴ'].includes(key)) {
+        keysRef.current.down = false;
+      }
+      if (['ArrowLeft', 'KeyA'].includes(code) || ['ArrowLeft', 'a', 'A', 'ㅁ'].includes(key)) {
+        keysRef.current.left = false;
+      }
+      if (['ArrowRight', 'KeyD'].includes(code) || ['ArrowRight', 'd', 'D', 'ㅇ'].includes(key)) {
+        keysRef.current.right = false;
+      }
+      if (['Space', 'ShiftLeft', 'ShiftRight'].includes(code) || [' ', 'Shift'].includes(key)) {
         keysRef.current.space = false;
       }
     };
@@ -142,7 +191,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     };
   }, []);
 
-  // Spawn a floating score or text particle
+  // Spawn floating score or text particle
   const spawnTextParticle = useCallback((x: number, y: number, text: string, color: string) => {
     particlesRef.current.push({
       x,
@@ -179,7 +228,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     }
   }, []);
 
-  // Main Game Loop
+  // Main Game Loop (Executes once per game session)
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -188,7 +237,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
 
     sound.startEngine();
 
-    // Reset player position based on canvas width
+    // Scale canvas for high DPI displays
     const rect = canvas.getBoundingClientRect();
     const dpr = window.devicePixelRatio || 1;
     canvas.width = rect.width * dpr;
@@ -199,33 +248,42 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     const roadX = (rect.width - roadWidth) / 2;
     const laneWidth = roadWidth / LANE_COUNT;
 
-    // Reset player to 2nd lane
+    // Initialize player starting state once
     playerRef.current.x = roadX + laneWidth * 1.5 - CAR_WIDTH / 2;
     playerRef.current.y = rect.height - CAR_HEIGHT - 60;
     playerRef.current.speed = 80;
     playerRef.current.health = 100;
+    playerRef.current.maxSpeed = tunedStatsRef.current.topSpeed;
+    playerRef.current.acceleration = tunedStatsRef.current.acceleration;
+    playerRef.current.handling = tunedStatsRef.current.handling;
+    playerRef.current.maxNitro = tunedStatsRef.current.maxNitro;
     isDeadRef.current = false;
 
     let lastTime = performance.now();
+    let lastStatsUpdateTime = performance.now();
     let animId: number;
 
     const loop = (currentTime: number) => {
-      const dt = Math.min((currentTime - lastTime) / 1000, 0.05); // cap at 50ms to prevent jumping
+      const dt = Math.min((currentTime - lastTime) / 1000, 0.05);
       lastTime = currentTime;
 
       const width = rect.width;
       const height = rect.height;
 
-      if (!isPaused && !isDeadRef.current) {
+      if (!isPausedRef.current && !isDeadRef.current) {
         // --- 1. Process Input & Player Movement ---
-        const isLeft = keysRef.current.left || touchInput.left;
-        const isRight = keysRef.current.right || touchInput.right;
-        const isUp = keysRef.current.up || touchInput.accel;
-        const isDown = keysRef.current.down || touchInput.brake;
-        const isNitroRequested = keysRef.current.space || touchInput.nitro;
+        const touch = touchInputRef.current;
+        const pointerSteer = canvasPointerSteerRef.current;
+
+        const isLeft = keysRef.current.left || touch.left || pointerSteer === -1;
+        const isRight = keysRef.current.right || touch.right || pointerSteer === 1;
+        const isUp = keysRef.current.up || touch.accel;
+        const isDown = keysRef.current.down || touch.brake;
+        const isNitroRequested = keysRef.current.space || touch.nitro;
 
         const player = playerRef.current;
         const stats = statsRef.current;
+        const currentMode = modeRef.current;
 
         // Nitro management
         if (isNitroRequested && player.nitro > 10) {
@@ -270,21 +328,24 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           stats.maxSpeedReached = Math.round(player.speed);
         }
 
-        // Lateral steering
+        // --- LATERAL STEERING (LEFT / RIGHT) ---
+        // Fast, smooth and responsive lateral movement
         let turnDir = 0;
+        const lateralSpeed = Math.max(360, (player.handling || 28) * 15);
+
         if (isLeft) {
           turnDir = -1;
-          player.x -= player.handling * 12 * dt;
+          player.x -= lateralSpeed * dt;
         }
         if (isRight) {
           turnDir = 1;
-          player.x += player.handling * 12 * dt;
+          player.x += lateralSpeed * dt;
         }
         player.turnDirection = turnDir;
 
-        // Road boundaries clamp (with side crash penalty)
-        const minX = roadX + 6;
-        const maxX = roadX + roadWidth - CAR_WIDTH - 6;
+        // Road boundaries clamp
+        const minX = roadX + 4;
+        const maxX = roadX + roadWidth - CAR_WIDTH - 4;
         if (player.x < minX) {
           player.x = minX;
           player.speed *= 0.96;
@@ -309,15 +370,13 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         }
 
         // Distance & Score progression
-        const speedRatio = player.speed / 100;
         const distanceDelta = (player.speed * 1000 / 3600) * dt;
         stats.distance += distanceDelta;
         stats.score += Math.round(distanceDelta * (1 + (stats.combo > 0 ? stats.combo * 0.25 : 0)));
 
         // Time Attack mode timer countdown
-        if (mode === 'TIME_ATTACK') {
+        if (currentMode === 'TIME_ATTACK') {
           stats.timeRemaining -= dt;
-          // Checkpoints
           if (stats.distance >= checkpointDistanceRef.current) {
             stats.timeRemaining += 12;
             checkpointDistanceRef.current += 1500;
@@ -330,13 +389,12 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
             isDeadRef.current = true;
             sound.stopEngine();
             sound.playCrash();
-            onGameOver(stats);
+            onGameOverRef.current({ ...stats });
           }
         }
 
         // Police Chase mode dynamics
-        if (mode === 'POLICE_CHASE') {
-          // If player speed is high (> 180), police distance grows. If low, police catches up!
+        if (currentMode === 'POLICE_CHASE') {
           const speedDiff = player.speed - 160;
           stats.policeDistance += (speedDiff * 0.04) * dt;
           stats.policeDistance = Math.max(0, Math.min(100, stats.policeDistance));
@@ -350,7 +408,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
             sound.stopEngine();
             sound.playCrash();
             spawnTextParticle(width / 2, height / 2 - 80, '경찰에 체포되었습니다!', '#ef4444');
-            onGameOver(stats);
+            onGameOverRef.current({ ...stats });
           }
         }
 
@@ -366,32 +424,30 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           const spawnInterval = Math.max(60, 140 - (player.speed / 280) * 50);
           nextSpawnDistanceRef.current = spawnInterval + Math.random() * 40;
 
-          // Pick an available lane
           const randomLane = Math.floor(Math.random() * LANE_COUNT);
           const laneX = roadX + randomLane * laneWidth + (laneWidth - CAR_WIDTH) / 2;
 
-          // Avoid spawning right on top of another traffic car
           const tooClose = trafficRef.current.some(
             (c) => Math.abs(c.y - -CAR_HEIGHT * 2) < 180 && c.lane === randomLane
           );
 
           if (!tooClose) {
-            const carTypes: Array<'sedan' | 'truck' | 'taxi' | 'sports' | 'police' | 'bus'> = [
+            const carTypes: Array<'sedan' | 'truck' | 'taxi' | 'sports' | 'police'> = [
               'sedan',
               'taxi',
               'truck',
               'sports',
             ];
-            if (mode === 'POLICE_CHASE' && Math.random() < 0.4) {
+            if (currentMode === 'POLICE_CHASE' && Math.random() < 0.4) {
               carTypes.push('police');
             }
 
             const chosenType = carTypes[Math.floor(Math.random() * carTypes.length)];
-            let trafficSpeed = 65 + Math.random() * 30; // km/h
+            let trafficSpeed = 65 + Math.random() * 30;
             let carHeight = CAR_HEIGHT;
             let carColor = '#3b82f6';
 
-            if (chosenType === 'truck' || chosenType === 'bus') {
+            if (chosenType === 'truck') {
               trafficSpeed = 50 + Math.random() * 20;
               carHeight = CAR_HEIGHT * 1.5;
               carColor = '#e2e8f0';
@@ -428,14 +484,13 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           }
         }
 
-        // --- 3. Spawn Pickups (Coins, Nitro, Repair, Shield, Magnet) ---
+        // --- 3. Spawn Pickups ---
         nextPickupDistanceRef.current -= distanceDelta;
         if (nextPickupDistanceRef.current <= 0) {
           nextPickupDistanceRef.current = 140 + Math.random() * 180;
           const randomLane = Math.floor(Math.random() * LANE_COUNT);
           const pickupX = roadX + randomLane * laneWidth + laneWidth / 2 - 16;
 
-          // Determine pickup type
           const roll = Math.random();
           let pType: PickupType = 'coin';
           if (roll < 0.6) {
@@ -466,8 +521,6 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         // --- 4. Update Traffic Cars ---
         for (let i = trafficRef.current.length - 1; i >= 0; i--) {
           const car = trafficRef.current[i];
-
-          // Relative vertical movement: player speed vs traffic car speed
           const relativeSpeedKmh = player.speed - car.speed;
           const relativeSpeedPixels = (relativeSpeedKmh * 1000 / 3600) * 5.2 * dt;
           car.y += relativeSpeedPixels;
@@ -488,7 +541,6 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
             }
           }
 
-          // Smooth lateral move during lane switch
           if (car.isChangingLane) {
             const dx = car.targetX - car.x;
             if (Math.abs(dx) > 1.5) {
@@ -502,14 +554,13 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
             }
           }
 
-          // --- Collision Detection with Player ---
+          // Collision Detection with Player
           const hitX = Math.abs(player.x + CAR_WIDTH / 2 - (car.x + car.width / 2));
           const hitY = Math.abs(player.y + CAR_HEIGHT / 2 - (car.y + car.height / 2));
           const collisionX = hitX < (CAR_WIDTH + car.width) * 0.44;
           const collisionY = hitY < (CAR_HEIGHT + car.height) * 0.44;
 
           if (collisionX && collisionY && player.invulnerableTimer <= 0) {
-            // Check shield protection
             if (player.shieldTimer > 0) {
               player.shieldTimer = 0;
               player.invulnerableTimer = 1.0;
@@ -517,13 +568,11 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
               sound.playCrash();
               spawnSparks(car.x + car.width / 2, car.y + car.height / 2, 20, '#38bdf8');
               spawnTextParticle(player.x, player.y - 20, '보호막 방어!', '#38bdf8');
-              // Push car away
               car.y -= 120;
               car.speed = 40;
             } else {
-              // Impact damage based on speed difference and vehicle armor
               const impactSpeed = Math.abs(relativeSpeedKmh);
-              const armorReduction = tunedStats.armor * 0.18; // Beast SUV takes much less damage
+              const armorReduction = (playerRef.current.handling || 1) * 0.05;
               const damage = Math.round(Math.max(20, (impactSpeed * 0.45) * (1 - armorReduction)));
 
               player.health -= damage;
@@ -533,7 +582,6 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
               spawnSparks(player.x + CAR_WIDTH / 2, player.y + 20, 16, '#ef4444');
               stats.combo = 0;
 
-              // Bounce off
               player.speed *= 0.65;
               if (player.x < car.x) {
                 player.x -= 20;
@@ -543,7 +591,6 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
                 car.x -= 15;
               }
 
-              // Check if player died
               if (player.health <= 0) {
                 player.health = 0;
                 isDeadRef.current = true;
@@ -551,7 +598,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
                 sound.playCrash();
                 spawnSparks(player.x + CAR_WIDTH / 2, player.y + CAR_HEIGHT / 2, 35, '#ef4444');
                 spawnTextParticle(player.x, player.y - 30, 'CRASH!', '#ef4444');
-                onGameOver(stats);
+                onGameOverRef.current({ ...stats });
                 break;
               } else {
                 spawnTextParticle(player.x, player.y - 25, `-${damage} HP`, '#f87171');
@@ -559,8 +606,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
             }
           }
 
-          // --- Near Miss Detection ---
-          // Passing close laterally (within 24px) when speed > 110 km/h without collision
+          // Near Miss Detection
           const isPassingY = Math.abs(player.y - car.y) < CAR_HEIGHT * 0.8;
           const isNearX = hitX >= (CAR_WIDTH + car.width) * 0.44 && hitX <= (CAR_WIDTH + car.width) * 0.72;
 
@@ -568,11 +614,10 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
             car.nearMissAwarded = true;
             stats.nearMisses += 1;
             stats.combo += 1;
-            stats.comboTimer = 3.5; // 3.5 seconds to chain next near miss
+            stats.comboTimer = 3.5;
 
             const bonusScore = 150 * stats.combo;
             stats.score += bonusScore;
-            // Refill nitro
             player.nitro = Math.min(player.maxNitro, player.nitro + 18);
 
             sound.playNearMiss(stats.combo);
@@ -584,7 +629,6 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
             );
           }
 
-          // Remove traffic that fell off screen
           if (car.y > height + 200 || car.y < -300) {
             trafficRef.current.splice(i, 1);
           }
@@ -598,7 +642,6 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           item.y += relativeSpeedPixels;
           item.pulseTimer += dt * 4;
 
-          // Magnet suction
           if (magnetActive) {
             const dx = player.x + CAR_WIDTH / 2 - (item.x + item.width / 2);
             const dy = player.y + CAR_HEIGHT / 2 - (item.y + item.height / 2);
@@ -609,7 +652,6 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
             }
           }
 
-          // Collision with player
           const distToPlayer = Math.hypot(
             player.x + CAR_WIDTH / 2 - (item.x + item.width / 2),
             player.y + CAR_HEIGHT / 2 - (item.y + item.height / 2)
@@ -637,9 +679,9 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
               sound.playPowerup();
               spawnTextParticle(item.x, item.y, '보호막 활성화 (10초)', '#38bdf8');
             } else if (item.type === 'magnet') {
-              player.magnetTimer = tunedStats.magnetDuration;
+              player.magnetTimer = tunedStatsRef.current.magnetDuration;
               sound.playPowerup();
-              spawnTextParticle(item.x, item.y, `자석 가동 (${tunedStats.magnetDuration}초)`, '#a855f7');
+              spawnTextParticle(item.x, item.y, `자석 가동 (${tunedStatsRef.current.magnetDuration}초)`, '#a855f7');
             }
 
             pickupsRef.current.splice(i, 1);
@@ -652,7 +694,6 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         }
 
         // --- 6. Update Particles ---
-        // Spawn continuous exhaust smoke or nitro flame
         if (player.speed > 50) {
           const isBoosting = player.isNitroActive;
           particlesRef.current.push({
@@ -694,13 +735,15 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           }
         }
 
-        // Decay screen shake
         if (screenShakeRef.current > 0) {
           screenShakeRef.current = Math.max(0, screenShakeRef.current - dt * 10);
         }
 
-        // Notify parent HUD of stats updates
-        onStatsUpdate({ ...stats }, { ...player });
+        // Throttle HUD update to ~20fps to prevent React render saturation
+        if (currentTime - lastStatsUpdateTime > 50) {
+          lastStatsUpdateTime = currentTime;
+          onStatsUpdateRef.current({ ...stats }, { ...player });
+        }
       }
 
       // ==========================================
@@ -708,16 +751,15 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       // ==========================================
       ctx.save();
 
-      // Screen shake translation
       if (screenShakeRef.current > 0) {
         const shakeX = (Math.random() - 0.5) * screenShakeRef.current * 4;
         const shakeY = (Math.random() - 0.5) * screenShakeRef.current * 4;
         ctx.translate(shakeX, shakeY);
       }
 
-      const colors = HIGHWAY_COLORS[theme];
+      const colors = HIGHWAY_COLORS[themeRef.current];
 
-      // Draw Horizon & Roadside Terrain (Parallax feel)
+      // Sky & Horizon
       const skyGrad = ctx.createLinearGradient(0, 0, 0, height);
       skyGrad.addColorStop(0, colors.skyTop);
       skyGrad.addColorStop(0.35, colors.skyBottom);
@@ -725,24 +767,24 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       ctx.fillStyle = skyGrad;
       ctx.fillRect(0, 0, width, height);
 
-      // Road asphalt surface
+      // Road asphalt
       ctx.fillStyle = colors.road;
       ctx.fillRect(roadX, 0, roadWidth, height);
 
-      // Road shoulder & guard rails
+      // Road shoulder
       ctx.fillStyle = colors.shoulder;
       ctx.fillRect(roadX - 14, 0, 14, height);
       ctx.fillRect(roadX + roadWidth, 0, 14, height);
 
       // Guardrail reflective stripes
-      ctx.fillStyle = theme === 'NIGHT' ? '#f59e0b' : '#cbd5e1';
+      ctx.fillStyle = themeRef.current === 'NIGHT' ? '#f59e0b' : '#cbd5e1';
       const stripeOffset = (roadOffsetRef.current * 1.5) % 40;
       for (let y = -40 + stripeOffset; y < height; y += 40) {
         ctx.fillRect(roadX - 10, y, 6, 18);
         ctx.fillRect(roadX + roadWidth + 4, y, 6, 18);
       }
 
-      // Outer solid white road edge lines
+      // Outer solid white road lines
       ctx.strokeStyle = colors.line;
       ctx.lineWidth = 4;
       ctx.beginPath();
@@ -765,12 +807,11 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         ctx.lineTo(lx, height);
         ctx.stroke();
       }
-      ctx.setLineDash([]); // Reset dash
+      ctx.setLineDash([]);
 
-      // Night / Sunset Headlight Illuminations
+      // Headlight illumination cones (Night/Sunset)
       if (colors.headlightVisible) {
         const player = playerRef.current;
-        // Draw player's forward headlight beam cones
         const lightGrad = ctx.createRadialGradient(
           player.x + CAR_WIDTH / 2,
           player.y - 30,
@@ -793,16 +834,13 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         ctx.fill();
       }
 
-      // Draw Pickups (Coins, Boosts, Shields, Repair)
+      // Draw Pickups
       pickupsRef.current.forEach((item) => {
         ctx.save();
         ctx.translate(item.x + item.width / 2, item.y + item.height / 2);
-
-        // Soft glow shadow
         ctx.shadowBlur = 10;
 
         if (item.type === 'coin') {
-          // Spinning gold coin
           ctx.shadowColor = '#eab308';
           const scaleX = Math.cos(item.pulseTimer);
           ctx.scale(scaleX, 1);
@@ -823,7 +861,6 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           ctx.textBaseline = 'middle';
           ctx.fillText('$', 0, 1);
         } else if (item.type === 'nitro') {
-          // Blue Nitro Canister
           ctx.shadowColor = '#06b6d4';
           ctx.fillStyle = '#0284c7';
           ctx.fillRect(-10, -14, 20, 28);
@@ -837,7 +874,6 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           ctx.textBaseline = 'middle';
           ctx.fillText('NOS', 0, 0);
         } else if (item.type === 'repair') {
-          // Green Repair Medkit
           ctx.shadowColor = '#10b981';
           ctx.fillStyle = '#10b981';
           ctx.beginPath();
@@ -848,7 +884,6 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           ctx.fillRect(-3, -8, 6, 16);
           ctx.fillRect(-8, -3, 16, 6);
         } else if (item.type === 'shield') {
-          // Cyan Shield Orb
           ctx.shadowColor = '#38bdf8';
           ctx.strokeStyle = '#38bdf8';
           ctx.lineWidth = 3;
@@ -865,7 +900,6 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           ctx.textBaseline = 'middle';
           ctx.fillText('🛡️', 0, 0);
         } else if (item.type === 'magnet') {
-          // Purple Magnet Orb
           ctx.shadowColor = '#a855f7';
           ctx.fillStyle = '#9333ea';
           ctx.beginPath();
@@ -887,19 +921,16 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         ctx.save();
         ctx.translate(car.x, car.y);
 
-        // Vehicle shadow
         ctx.fillStyle = 'rgba(0, 0, 0, 0.35)';
         ctx.beginPath();
         ctx.roundRect(4, 6, car.width - 8, car.height, 8);
         ctx.fill();
 
-        // Main Car Body
         ctx.fillStyle = car.color;
         ctx.beginPath();
         ctx.roundRect(2, 0, car.width - 4, car.height, 8);
         ctx.fill();
 
-        // Roof / Cabin
         ctx.fillStyle = '#0f172a';
         const cabinY = car.type === 'truck' ? 10 : car.height * 0.28;
         const cabinHeight = car.type === 'truck' ? car.height * 0.75 : car.height * 0.44;
@@ -907,29 +938,24 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         ctx.roundRect(6, cabinY, car.width - 12, cabinHeight, 4);
         ctx.fill();
 
-        // Windshield (front and rear)
         ctx.fillStyle = '#67e8f9';
-        ctx.fillRect(8, cabinY + 2, car.width - 16, 6); // Front
-        ctx.fillRect(8, cabinY + cabinHeight - 8, car.width - 16, 6); // Rear
+        ctx.fillRect(8, cabinY + 2, car.width - 16, 6);
+        ctx.fillRect(8, cabinY + cabinHeight - 8, car.width - 16, 6);
 
-        // Wheels
         ctx.fillStyle = '#1e293b';
         ctx.fillRect(0, 10, 3, 14);
         ctx.fillRect(car.width - 3, 10, 3, 14);
         ctx.fillRect(0, car.height - 24, 3, 14);
         ctx.fillRect(car.width - 3, car.height - 24, 3, 14);
 
-        // Rear Taillights (Red)
         ctx.fillStyle = '#ef4444';
         ctx.fillRect(4, car.height - 4, 8, 3);
         ctx.fillRect(car.width - 12, car.height - 4, 8, 3);
 
-        // Front Headlights (Yellow/White)
         ctx.fillStyle = '#fef08a';
         ctx.fillRect(4, 1, 8, 3);
         ctx.fillRect(car.width - 12, 1, 8, 3);
 
-        // Flashing Turn Signals if changing lane
         if (car.isChangingLane && Math.floor(Date.now() / 150) % 2 === 0) {
           ctx.fillStyle = '#f59e0b';
           if (car.laneBlinker === 'left') {
@@ -941,7 +967,6 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           }
         }
 
-        // Flashing siren for police cars
         if (car.sirenActive) {
           const isRed = Math.floor(Date.now() / 120) % 2 === 0;
           ctx.fillStyle = isRed ? '#ef4444' : '#3b82f6';
@@ -953,31 +978,27 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
 
       // Draw Player Car
       const player = playerRef.current;
+      const currentVeh = vehicleRef.current;
+
       ctx.save();
       ctx.translate(player.x, player.y);
 
-      // Slight tilt when turning
       const tiltAngle = (player.turnDirection * Math.PI) / 36;
       ctx.translate(CAR_WIDTH / 2, CAR_HEIGHT / 2);
       ctx.rotate(tiltAngle);
       ctx.translate(-CAR_WIDTH / 2, -CAR_HEIGHT / 2);
 
-      // Invulnerable blink effect
       if (player.invulnerableTimer > 0 && Math.floor(Date.now() / 80) % 2 === 0) {
         ctx.globalAlpha = 0.4;
       }
 
-      // Ground shadow
       ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
       ctx.beginPath();
       ctx.roundRect(3, 8, CAR_WIDTH - 6, CAR_HEIGHT, 10);
       ctx.fill();
 
-      // Custom car design based on vehicle type
-      if (vehicle.style === 'formula') {
-        // Formula 1 open-wheel racer
-        ctx.fillStyle = vehicle.color;
-        // Central aerodynamic needle body
+      if (currentVeh.style === 'formula') {
+        ctx.fillStyle = currentVeh.color;
         ctx.beginPath();
         ctx.moveTo(CAR_WIDTH / 2, 0);
         ctx.lineTo(CAR_WIDTH - 6, 26);
@@ -987,49 +1008,39 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         ctx.closePath();
         ctx.fill();
 
-        // Front nose wing
-        ctx.fillStyle = vehicle.secondaryColor;
+        ctx.fillStyle = currentVeh.secondaryColor;
         ctx.fillRect(2, 6, CAR_WIDTH - 4, 6);
-        // Rear massive spoiler
-        ctx.fillStyle = vehicle.secondaryColor;
         ctx.fillRect(0, CAR_HEIGHT - 8, CAR_WIDTH, 8);
 
-        // Exposed wide race wheels
         ctx.fillStyle = '#0f172a';
         ctx.fillRect(-4, 14, 8, 18);
         ctx.fillRect(CAR_WIDTH - 4, 14, 8, 18);
         ctx.fillRect(-6, CAR_HEIGHT - 26, 10, 22);
         ctx.fillRect(CAR_WIDTH - 4, CAR_HEIGHT - 26, 10, 22);
 
-        // Cockpit helmet
         ctx.fillStyle = '#f59e0b';
         ctx.beginPath();
         ctx.arc(CAR_WIDTH / 2, CAR_HEIGHT * 0.45, 6, 0, Math.PI * 2);
         ctx.fill();
-      } else if (vehicle.style === 'suv') {
-        // Rugged SUV Truck
-        ctx.fillStyle = vehicle.color;
+      } else if (currentVeh.style === 'suv') {
+        ctx.fillStyle = currentVeh.color;
         ctx.beginPath();
         ctx.roundRect(1, 0, CAR_WIDTH - 2, CAR_HEIGHT, 6);
         ctx.fill();
 
-        // Heavy roof rack
-        ctx.fillStyle = vehicle.secondaryColor;
+        ctx.fillStyle = currentVeh.secondaryColor;
         ctx.fillRect(6, 20, CAR_WIDTH - 12, CAR_HEIGHT - 40);
         ctx.strokeStyle = '#475569';
         ctx.lineWidth = 2;
         ctx.strokeRect(6, 20, CAR_WIDTH - 12, CAR_HEIGHT - 40);
 
-        // Heavy tires
         ctx.fillStyle = '#090d16';
         ctx.fillRect(-2, 10, 5, 20);
         ctx.fillRect(CAR_WIDTH - 3, 10, 5, 20);
         ctx.fillRect(-2, CAR_HEIGHT - 30, 5, 20);
         ctx.fillRect(CAR_WIDTH - 3, CAR_HEIGHT - 30, 5, 20);
       } else {
-        // Sports & Cyber Cars
-        // Aerodynamic body contour
-        ctx.fillStyle = vehicle.color;
+        ctx.fillStyle = currentVeh.color;
         ctx.beginPath();
         ctx.moveTo(CAR_WIDTH * 0.2, 0);
         ctx.lineTo(CAR_WIDTH * 0.8, 0);
@@ -1043,29 +1054,21 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         ctx.closePath();
         ctx.fill();
 
-        // Center hood stripe / accent line
-        ctx.fillStyle = vehicle.secondaryColor;
+        ctx.fillStyle = currentVeh.secondaryColor;
         ctx.fillRect(CAR_WIDTH / 2 - 3, 2, 6, CAR_HEIGHT - 6);
 
-        // Glass windshield & cabin
         ctx.fillStyle = '#0f172a';
         ctx.beginPath();
         ctx.roundRect(6, CAR_HEIGHT * 0.24, CAR_WIDTH - 12, CAR_HEIGHT * 0.44, 4);
         ctx.fill();
 
-        // Tinted glass reflection
         ctx.fillStyle = '#38bdf8';
         ctx.fillRect(8, CAR_HEIGHT * 0.25, CAR_WIDTH - 16, 7);
-
-        // Rear window
-        ctx.fillStyle = '#38bdf8';
         ctx.fillRect(8, CAR_HEIGHT * 0.62, CAR_WIDTH - 16, 6);
 
-        // Rear aerodynamic wing / spoiler
-        ctx.fillStyle = vehicle.secondaryColor;
+        ctx.fillStyle = currentVeh.secondaryColor;
         ctx.fillRect(2, CAR_HEIGHT - 6, CAR_WIDTH - 4, 5);
 
-        // Wheels
         ctx.fillStyle = '#020617';
         ctx.fillRect(-2, 12, 4, 16);
         ctx.fillRect(CAR_WIDTH - 2, 12, 4, 16);
@@ -1078,16 +1081,16 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       ctx.fillRect(4, 0, 7, 3);
       ctx.fillRect(CAR_WIDTH - 11, 0, 7, 3);
 
-      // Rear Brake Lights (Glow intense bright red when braking)
+      // Rear Brake Lights
       const brakeGlow = player.isBraking;
       ctx.fillStyle = brakeGlow ? '#ff0000' : '#b91c1c';
       ctx.shadowColor = brakeGlow ? '#ff0000' : 'transparent';
       ctx.shadowBlur = brakeGlow ? 15 : 0;
       ctx.fillRect(4, CAR_HEIGHT - 2, 9, 3);
       ctx.fillRect(CAR_WIDTH - 13, CAR_HEIGHT - 2, 9, 3);
-      ctx.shadowBlur = 0; // Reset shadow
+      ctx.shadowBlur = 0;
 
-      // Active Shield Orb Aura
+      // Active Shield Aura
       if (player.shieldTimer > 0) {
         ctx.strokeStyle = '#38bdf8';
         ctx.lineWidth = 3;
@@ -1111,7 +1114,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
 
       ctx.restore();
 
-      // Draw Particles (Smoke, Exhaust fire, Sparks, Flying text)
+      // Particles
       particlesRef.current.forEach((p) => {
         ctx.save();
         ctx.globalAlpha = p.alpha;
@@ -1140,7 +1143,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         ctx.restore();
       });
 
-      // Speed lines during high speed / nitro boost
+      // Speed lines
       if (player.isNitroActive || player.speed > 220) {
         ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
         ctx.lineWidth = 1.5;
@@ -1156,7 +1159,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         }
       }
 
-      ctx.restore(); // Restore shake translation
+      ctx.restore();
 
       animId = requestAnimationFrame(loop);
     };
@@ -1167,24 +1170,43 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       cancelAnimationFrame(animId);
       sound.stopEngine();
     };
-  }, [
-    mode,
-    theme,
-    vehicle,
-    tunedStats,
-    isPaused,
-    touchInput,
-    onGameOver,
-    onStatsUpdate,
-    spawnSparks,
-    spawnTextParticle,
-  ]);
+  }, [spawnSparks, spawnTextParticle]);
+
+  // Handle direct touch / click steering on canvas
+  const handlePointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const clientX = e.clientX - rect.left;
+    const playerCenterX = playerRef.current.x + CAR_WIDTH / 2;
+    canvasPointerSteerRef.current = clientX < playerCenterX ? -1 : 1;
+  };
+
+  const handlePointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (e.buttons > 0) {
+      const rect = e.currentTarget.getBoundingClientRect();
+      const clientX = e.clientX - rect.left;
+      const playerCenterX = playerRef.current.x + CAR_WIDTH / 2;
+      if (Math.abs(clientX - playerCenterX) > 12) {
+        canvasPointerSteerRef.current = clientX < playerCenterX ? -1 : 1;
+      } else {
+        canvasPointerSteerRef.current = null;
+      }
+    }
+  };
+
+  const handlePointerEnd = () => {
+    canvasPointerSteerRef.current = null;
+  };
 
   return (
     <div className="relative w-full h-full flex items-center justify-center overflow-hidden bg-slate-950">
       <canvas
         ref={canvasRef}
-        className="w-full h-full max-w-xl mx-auto block cursor-crosshair"
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerEnd}
+        onPointerLeave={handlePointerEnd}
+        onPointerCancel={handlePointerEnd}
+        className="w-full h-full max-w-xl mx-auto block cursor-crosshair touch-none select-none"
       />
     </div>
   );
